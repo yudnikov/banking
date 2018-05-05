@@ -33,15 +33,14 @@ object Daemon extends App with Loggable {
     val amount = ThreadLocalRandom.current().nextInt(10)
     val money = s"RUB $amount".toMoney
     val fate = ThreadLocalRandom.current().nextBoolean()
-    logger.debug(s"fate $fate")
     atomic { implicit txn =>
       val currentState = state.get
-      val x = if (fate) {
+      val triedState = if (fate) {
         currentState.transfer(a1, a2, money)
       } else {
         currentState.transfer(a2, a1, money)
       }
-      x.map { newState =>
+      triedState.map { newState =>
         state() = newState
       }
     }

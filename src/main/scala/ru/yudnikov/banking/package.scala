@@ -13,18 +13,18 @@ package object banking {
 
   case class Transfer(id: Long, from: Account, to: Account, money: Money)
 
-  case class State(balance: Map[Account, Money] = Map()/*, transfers: List[Transfer] = Nil*/) extends Loggable {
+  case class State(balance: Map[Account, Money] = Map(), deposits: Long = 0L) extends Loggable {
     def deposit(account: Account, money: Money): Try[State] = Try {
       if (money.getCurrencyUnit != account.currencyUnit) throw LoggedException(s"wrong currency unit ${money.getCurrencyUnit} and ${account.currencyUnit}")
       val m = balance.get(account).map(_ plus money).getOrElse(money)
       if (m isGreaterThan account.capacity) throw LoggedException("out of account capacity")
-      State(balance = balance + (account -> m))
+      State(balance + (account -> m), deposits + 1)
     }
     def withdraw(account: Account, money: Money): Try[State] = Try {
       if (money.getCurrencyUnit != account.currencyUnit) throw LoggedException(s"wrong currency unit ${money.getCurrencyUnit} and ${account.currencyUnit}")
       val m = balance.get(account).map(_ minus money).getOrElse(throw LoggedException(s"$account is empty"))
       if (m.isNegative) throw LoggedException(s"not enough funds on $account")
-      State(balance = balance + (account -> m))
+      State(balance + (account -> m), deposits)
     }
     def transfer(from: Account, to: Account, money: Money): Try[State] = {
       logger.debug(s"transfer from ${from.id} to ${to.id} amount $money")
