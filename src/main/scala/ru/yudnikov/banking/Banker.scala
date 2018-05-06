@@ -7,7 +7,7 @@ import org.joda.time.DateTime
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.stm._
 
-trait Stateful {
+trait Banker {
 
   private val accountOperations: TSet[AccountOperation] = TSet()
   private val accountStocks: TMap[Account, Money] = TMap()
@@ -17,7 +17,7 @@ trait Stateful {
 
   protected def deposit(account: Account, money: Money, dateTime: DateTime = new DateTime()): Future[Unit] = Future {
     logger.debug(s"deposit to $account of $money")
-    require(money.getCurrencyUnit == account.currencyUnit, s"deposit currency should be the same as account's")
+    require(money.getCurrencyUnit == account.currencyUnit && money.isPositive, s"deposit currency should be the same as account's")
     atomic { implicit txn =>
       accountStocks.get(account) map { currentStock =>
         logger.debug(s"current stock: $currentStock")

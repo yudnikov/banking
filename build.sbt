@@ -22,4 +22,5 @@ libraryDependencies ++= Seq(
   "com.typesafe" % "config" % "1.2.1",
   // test
   "org.scalatest" %% "scalatest" % "3.0.5",
+  "com.typesafe.akka" %% "akka-http-testkit" % "10.1.1",
 )

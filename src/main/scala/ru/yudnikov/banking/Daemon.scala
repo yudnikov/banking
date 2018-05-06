@@ -6,7 +6,7 @@ import ru.yudnikov.logging.Loggable
 import ru.yudnikov.util._
 
 import scala.concurrent.{ExecutionContext, Future}
-import akka.http.scaladsl.Http
+import akka.http.scaladsl.{Http, server}
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
 import akka.stream.ActorMaterializer
@@ -16,7 +16,7 @@ import scala.io.StdIn
 import scala.util.{Failure, Success}
 
 object Daemon extends App
-  with Stateful
+  with Banker
   with Loggable {
 
   implicit val config: Config = ConfigFactory.load()
@@ -29,7 +29,7 @@ object Daemon extends App
   implicit val materializer: ActorMaterializer = ActorMaterializer()
   implicit val executionContext: ExecutionContext = actorSystem.dispatcher
 
-  val route = {
+  def route: server.Route = {
     get {
       pathSingleSlash {
         complete("welcome!")
