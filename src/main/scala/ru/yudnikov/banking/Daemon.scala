@@ -1,57 +1,116 @@
 package ru.yudnikov.banking
 
-import java.util.concurrent.ThreadLocalRandom
-
+import akka.actor.ActorSystem
+import com.typesafe.config.{Config, ConfigFactory}
 import ru.yudnikov.logging.Loggable
 import ru.yudnikov.util._
 
-import scala.concurrent.stm._
+import scala.concurrent.{Await, ExecutionContext, Future}
+import akka.http.scaladsl.Http
+import akka.http.scaladsl.model._
+import akka.http.scaladsl.server.Directives._
+import akka.http.scaladsl.server.StandardRoute
+import akka.stream.ActorMaterializer
+import org.joda.money.Money
 
-object Daemon extends App with Loggable {
+import scala.io.StdIn
+import scala.util.{Failure, Success}
 
-  val state = Ref(State())
+object Daemon extends App
+  with Stateful
+  with Loggable {
 
-  val a1 = Account(1, "RUB".toCurrency, 20000)
-  val a2 = Account(2, "RUB".toCurrency, 20000)
+  implicit val config: Config = ConfigFactory.load()
 
+  val appName = config.getString("app.name")
+  val hostname = config.getString("app.hostname")
+  val port = config.getInt("app.port")
 
-  atomic { implicit txn =>
-    val currentState = state.get
-    currentState.deposit(a1, "RUB 10000".toMoney).map { newState =>
-      state() = newState
-    }
-  }
+  implicit val actorSystem: ActorSystem = ActorSystem(appName)
+  implicit val materializer: ActorMaterializer = ActorMaterializer()
+  implicit val executionContext: ExecutionContext = actorSystem.dispatcher
 
-  atomic { implicit txn =>
-    val currentState = state.get
-    currentState.deposit(a2, "RUB 10000".toMoney).map { newState =>
-      state() = newState
-    }
-  }
-
-  val runnable: Runnable = () => {
-    val amount = ThreadLocalRandom.current().nextInt(10)
-    val money = s"RUB $amount".toMoney
-    val fate = ThreadLocalRandom.current().nextBoolean()
-    atomic { implicit txn =>
-      val currentState = state.get
-      val triedState = if (fate) {
-        currentState.transfer(a1, a2, money)
-      } else {
-        currentState.transfer(a2, a1, money)
-      }
-      triedState.map { newState =>
-        state() = newState
+  val route = {
+    // code reuse
+    def template(id: Long, cur: String, amt: Double, operation: (Account, Money) => StandardRoute): StandardRoute = {
+      Account.byId(id).map { acc =>
+        operation(acc, Money.of(cur.toCurrency, amt))
+      }.getOrElse {
+        val message = s"account not found by id $id"
+        logger.debug(message)
+        complete(StatusCodes.InternalServerError -> message)
       }
     }
+
+    get {
+      pathSingleSlash {
+        complete("welcome!")
+      } ~
+      path("operations") {
+        complete(200 -> operations.mkString("\n"))
+      } ~
+      path("stocks") {
+        complete(200 -> stocks.mkString("\n"))
+      }
+    } ~ post {
+      path("account" / "create") {
+        parameters('id.as[Long], 'currency) { (id, currencyUnitString) =>
+          Account(id, currencyUnitString.toCurrency) match {
+            case Success(acc) =>
+              complete(StatusCodes.Created -> s"created $acc")
+            case Failure(exception) =>
+              complete(StatusCodes.InternalServerError -> exception.getMessage)
+          }
+        }
+      } ~
+        path("deposit") {
+          parameters('id.as[Long], 'currency, 'amount.as[Double]) { (id, cur, amt) =>
+            def operation: (Account, Money) => StandardRoute = (acc, money) => deposit(acc, money) match {
+              case Success(_) =>
+                complete(StatusCodes.OK -> s"deposit success")
+              case Failure(exception) =>
+                complete(StatusCodes.InternalServerError -> s"deposit failure ${exception.getMessage}")
+            }
+
+            template(id, cur, amt, operation)
+          }
+        } ~
+        path("withdraw") {
+          parameters('id.as[Long], 'currency, 'amount.as[Double]) { (id, cur, amt) =>
+            def operation: (Account, Money) => StandardRoute = (acc, money) => withdraw(acc, money) match {
+              case Success(_) =>
+                complete(StatusCodes.OK -> s"withdraw success")
+              case Failure(exception) =>
+                complete(StatusCodes.InternalServerError -> s"withdraw failure ${exception.getMessage}")
+            }
+
+            template(id, cur, amt, operation)
+          }
+        } ~
+        path("transfer") {
+          parameters('from.as[Long], 'to.as[Long], 'currency, 'amount.as[Double]) { (fromId, toId, cur, amt) =>
+            val maybeRoute = for {
+              from <- Account.byId(fromId)
+              to <- Account.byId(toId)
+            } yield {
+              val money = Money.of(cur.toCurrency, amt)
+              transfer(from, to, money) match {
+                case Success(_) =>
+                  complete(201 -> "transfer success")
+                case Failure(exception) =>
+                  complete(500 -> exception.getMessage)
+              }
+            }
+            maybeRoute.getOrElse(complete(500 -> s"can't get account(s) by id: $fromId or $toId"))
+          }
+        }
+    }
   }
 
-  1 to 100000 foreach { _ =>
-    runnable.run()
-  }
+  val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
 
-  atomic { implicit txn =>
-    println(state.get)
-  }
+  println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
+  StdIn.readLine()
+  bindingFuture.flatMap(_.unbind()).onComplete(_ => actorSystem.terminate())
 
 }
