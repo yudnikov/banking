@@ -14,6 +14,11 @@ package object banking {
   case class Account private[Account](id: Long, currencyUnit: CurrencyUnit)
 
   object Account extends Loggable {
+    @deprecated("dangerous method")
+    def apply(id: Long): Account = atomic { implicit txn =>
+      accounts(id)
+    }
+
     def apply(id: Long, currencyUnit: CurrencyUnit): Try[Account] = Try {
       atomic { implicit txn =>
         val account = new Account(id, currencyUnit)

@@ -1,10 +1,12 @@
 package ru.yudnikov.banking
 
+import java.util.concurrent.ThreadLocalRandom
+
 import org.scalatest.{FlatSpec, Matchers}
 import ru.yudnikov.logging.Loggable
 import ru.yudnikov.util._
 
-import scala.concurrent.{Await, ExecutionContext}
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
@@ -53,9 +55,19 @@ class BankerSuite extends FlatSpec with Matchers with Banker with Loggable {
   }
 
   it should "guarantee data consistency with multithreaded flow" in {
-    def runnable: Runnable = () => {
-
+    val stocksBefore = stocksTotal
+    val a1 = Account(1)
+    val a2 = Account(2)
+    val futures = 1 to 10000 map { _ =>
+      val rnd = ThreadLocalRandom.current()
+      val amount = rnd.nextInt(100)
+      val money = s"RUB $amount".toMoney
+      if (rnd.nextBoolean()) transfer(a1, a2, money) else transfer(a2, a1, money)
     }
+    logger.debug(s"futures has been launched")
+    Await.result(Future.sequence(futures), Duration.Inf)
+    val stocksAfter = stocksTotal
+    stocksBefore shouldEqual stocksAfter
   }
 
 }
