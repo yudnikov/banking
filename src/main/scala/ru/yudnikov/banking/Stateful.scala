@@ -1,11 +1,11 @@
 package ru.yudnikov.banking
 
 import com.typesafe.scalalogging.Logger
-import org.joda.money.{CurrencyUnit, Money}
+import org.joda.money.Money
 import org.joda.time.DateTime
 
+import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.stm._
-import scala.util.Try
 
 trait Stateful {
 
@@ -13,8 +13,9 @@ trait Stateful {
   private val accountStocks: TMap[Account, Money] = TMap()
 
   protected implicit val logger: Logger
+  protected implicit val executionContext: ExecutionContext
 
-  protected def deposit(account: Account, money: Money, dateTime: DateTime = new DateTime()): Try[Unit] = Try {
+  protected def deposit(account: Account, money: Money, dateTime: DateTime = new DateTime()): Future[Unit] = Future {
     logger.debug(s"deposit to $account of $money")
     require(money.getCurrencyUnit == account.currencyUnit, s"deposit currency should be the same as account's")
     atomic { implicit txn =>
@@ -28,7 +29,7 @@ trait Stateful {
     }
   }
 
-  protected def withdraw(account: Account, money: Money, dateTime: DateTime = new DateTime()): Try[Unit] = Try {
+  protected def withdraw(account: Account, money: Money, dateTime: DateTime = new DateTime()): Future[Unit] = Future {
     logger.debug(s"withdraw from $account of $money")
     require(money.getCurrencyUnit == account.currencyUnit, s"withdraw currency should be the same as account's")
     atomic { implicit txn =>
@@ -47,7 +48,7 @@ trait Stateful {
     }
   }
 
-  protected def transfer(from: Account, to: Account, money: Money, dateTime: DateTime = new DateTime()): Try[Unit] = Try {
+  protected def transfer(from: Account, to: Account, money: Money, dateTime: DateTime = new DateTime()): Future[Unit] = Future {
     logger.debug(s"transfer from $from to $to of $money")
     atomic { implicit txn =>
       withdraw(from, money, dateTime).map { _ =>

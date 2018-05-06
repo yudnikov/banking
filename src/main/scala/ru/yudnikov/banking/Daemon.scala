@@ -5,11 +5,10 @@ import com.typesafe.config.{Config, ConfigFactory}
 import ru.yudnikov.logging.Loggable
 import ru.yudnikov.util._
 
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, Future}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
-import akka.http.scaladsl.server.StandardRoute
 import akka.stream.ActorMaterializer
 import org.joda.money.Money
 
@@ -31,17 +30,6 @@ object Daemon extends App
   implicit val executionContext: ExecutionContext = actorSystem.dispatcher
 
   val route = {
-    // code reuse
-    def template(id: Long, cur: String, amt: Double, operation: (Account, Money) => StandardRoute): StandardRoute = {
-      Account.byId(id).map { acc =>
-        operation(acc, Money.of(cur.toCurrency, amt))
-      }.getOrElse {
-        val message = s"account not found by id $id"
-        logger.debug(message)
-        complete(StatusCodes.InternalServerError -> message)
-      }
-    }
-
     get {
       pathSingleSlash {
         complete("welcome!")
@@ -65,43 +53,45 @@ object Daemon extends App
       } ~
         path("deposit") {
           parameters('id.as[Long], 'currency, 'amount.as[Double]) { (id, cur, amt) =>
-            def operation: (Account, Money) => StandardRoute = (acc, money) => deposit(acc, money) match {
+            val future = Account.byId(id).map { acc =>
+              deposit(acc, Money.of(cur.toCurrency, amt))
+            }.getOrElse(Future.failed(new Exception(s"account not found by id $id")))
+            onComplete(future) {
               case Success(_) =>
-                complete(StatusCodes.OK -> s"deposit success")
+                complete(200 -> "deposit success")
               case Failure(exception) =>
-                complete(StatusCodes.InternalServerError -> s"deposit failure ${exception.getMessage}")
+                complete(500 -> s"deposit failed ${exception.getMessage}")
             }
-
-            template(id, cur, amt, operation)
           }
         } ~
         path("withdraw") {
           parameters('id.as[Long], 'currency, 'amount.as[Double]) { (id, cur, amt) =>
-            def operation: (Account, Money) => StandardRoute = (acc, money) => withdraw(acc, money) match {
+            val future = Account.byId(id).map { acc =>
+              withdraw(acc, Money.of(cur.toCurrency, amt))
+            }.getOrElse(Future.failed(new Exception(s"account not found by id $id")))
+            onComplete(future) {
               case Success(_) =>
-                complete(StatusCodes.OK -> s"withdraw success")
+                complete(200 -> "withdraw success")
               case Failure(exception) =>
-                complete(StatusCodes.InternalServerError -> s"withdraw failure ${exception.getMessage}")
+                complete(500 -> s"withdraw failed ${exception.getMessage}")
             }
-
-            template(id, cur, amt, operation)
           }
         } ~
         path("transfer") {
           parameters('from.as[Long], 'to.as[Long], 'currency, 'amount.as[Double]) { (fromId, toId, cur, amt) =>
-            val maybeRoute = for {
+            val maybeFuture = for {
               from <- Account.byId(fromId)
               to <- Account.byId(toId)
             } yield {
-              val money = Money.of(cur.toCurrency, amt)
-              transfer(from, to, money) match {
-                case Success(_) =>
-                  complete(201 -> "transfer success")
-                case Failure(exception) =>
-                  complete(500 -> exception.getMessage)
-              }
+              transfer(from, to, Money.of(cur.toCurrency, amt))
             }
-            maybeRoute.getOrElse(complete(500 -> s"can't get account(s) by id: $fromId or $toId"))
+            val future = maybeFuture.getOrElse(Future.failed(new Exception(s"can't get account by id $fromId or $toId")))
+            onComplete(future) {
+              case Success(_) =>
+                complete(201 -> "transfer success")
+              case Failure(exception) =>
+                complete(500 -> s"transfer failed ${exception.getMessage}")
+            }
           }
         }
     }
