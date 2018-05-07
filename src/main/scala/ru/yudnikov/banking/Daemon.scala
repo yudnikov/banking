@@ -54,7 +54,8 @@ object Daemon extends App
         path("deposit") {
           parameters('id.as[Long], 'currency, 'amount.as[Double]) { (id, cur, amt) =>
             val future = Account.byId(id).map { acc =>
-              deposit(acc, Money.of(cur.toCurrency, amt))
+              val money = Money.of(cur.toCurrency, amt)
+              deposit(acc, money)
             }.getOrElse(Future.failed(new Exception(s"account not found by id $id")))
             onComplete(future) {
               case Success(_) =>

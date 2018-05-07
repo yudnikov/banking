@@ -3,17 +3,16 @@ package ru.yudnikov.banking
 import com.typesafe.scalalogging.Logger
 import org.joda.money.Money
 import org.joda.time.DateTime
+import ru.yudnikov.logging.Loggable
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.stm._
+import ExecutionContext.Implicits.global
 
-trait Banker {
+trait Banker extends Loggable {
 
   private val accountOperations: TSet[AccountOperation] = TSet()
   private val accountStocks: TMap[Account, Money] = TMap()
-
-  protected implicit val logger: Logger
-  protected implicit val executionContext: ExecutionContext
 
   protected def deposit(account: Account, money: Money, dateTime: DateTime = new DateTime()): Future[Unit] = Future {
     logger.debug(s"deposit to $account of $money")

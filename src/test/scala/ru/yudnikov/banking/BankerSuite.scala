@@ -10,9 +10,9 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
-class BankerSuite extends FlatSpec with Matchers with Banker with Loggable {
+import ExecutionContext.Implicits.global
 
-  override protected implicit val executionContext: ExecutionContext = ExecutionContext.Implicits.global
+class BankerSuite extends FlatSpec with Matchers with Banker with Loggable {
 
   "Banker" should "create accounts" in {
     Account(1, "RUB".toCurrency)
