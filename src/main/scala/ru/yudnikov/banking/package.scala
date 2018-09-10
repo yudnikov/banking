@@ -1,36 +1,59 @@
 package ru.yudnikov
 
 import org.joda.money.{CurrencyUnit, Money}
-import ru.yudnikov.logging.{Loggable, LoggedException}
+import org.joda.time.DateTime
+import ru.yudnikov.logging.Loggable
 
+import scala.concurrent.stm._
 import scala.util.Try
 
 package object banking {
 
-  case class Account(id: Long, currencyUnit: CurrencyUnit, capacityAmount: Long) {
-    lazy val capacity: Money = Money.of(currencyUnit, capacityAmount)
+  private val accounts: TMap[Long, Account] = TMap()
+
+  case class Account private[Account](id: Long, currencyUnit: CurrencyUnit)
+
+  object Account extends Loggable {
+    @deprecated("dangerous method")
+    def apply(id: Long): Account = atomic { implicit txn =>
+      accounts(id)
+    }
+
+    def apply(id: Long, currencyUnit: CurrencyUnit): Try[Account] = Try {
+      atomic { implicit txn =>
+        val account = new Account(id, currencyUnit)
+        accounts.get(id) map { existing =>
+          if (existing != account) {
+            throw new Exception(s"existing account $existing can't be modified")
+          } else {
+            throw new Exception(s"the same account already exists!")
+          }
+        }
+        accounts += id -> account
+        logger.debug(s"instantiated account $account")
+        account
+      }
+    }
+
+    def byId(id: Long): Option[Account] = atomic { implicit txn =>
+      val maybeAccount = accounts.get(id)
+      logger.debug(s"account got by id ($id) $maybeAccount")
+      maybeAccount
+    }
   }
 
-  case class Transfer(id: Long, from: Account, to: Account, money: Money)
+  sealed trait Sign
 
-  case class State(balance: Map[Account, Money] = Map(), deposits: Long = 0L) extends Loggable {
-    def deposit(account: Account, money: Money): Try[State] = Try {
-      if (money.getCurrencyUnit != account.currencyUnit) throw LoggedException(s"wrong currency unit ${money.getCurrencyUnit} and ${account.currencyUnit}")
-      val m = balance.get(account).map(_ plus money).getOrElse(money)
-      if (m isGreaterThan account.capacity) throw LoggedException("out of account capacity")
-      State(balance + (account -> m), deposits + 1)
-    }
-    def withdraw(account: Account, money: Money): Try[State] = Try {
-      if (money.getCurrencyUnit != account.currencyUnit) throw LoggedException(s"wrong currency unit ${money.getCurrencyUnit} and ${account.currencyUnit}")
-      val m = balance.get(account).map(_ minus money).getOrElse(throw LoggedException(s"$account is empty"))
-      if (m.isNegative) throw LoggedException(s"not enough funds on $account")
-      State(balance + (account -> m), deposits)
-    }
-    def transfer(from: Account, to: Account, money: Money): Try[State] = {
-      logger.debug(s"transfer from ${from.id} to ${to.id} amount $money")
-      logger.debug(s"current state $this")
-      withdraw(from, money).flatMap(_.deposit(to, money))
-    }
+  object Sign {
+    case object Plus extends Sign
+    case object Minus extends Sign
   }
+
+  trait Record {
+    val sign: Sign
+    val dateTime: DateTime
+  }
+
+  case class AccountOperation(sign: Sign, dateTime: DateTime, account: Account, money: Money) extends Record
 
 }

@@ -18,4 +18,9 @@ libraryDependencies ++= Seq(
   "com.typesafe.scala-logging" %% "scala-logging" % "3.9.0",
   // stm
   "org.scala-stm" %% "scala-stm" % "0.8",
+  // config
+  "com.typesafe" % "config" % "1.2.1",
+  // test
+  "org.scalatest" %% "scalatest" % "3.0.5",
+  "com.typesafe.akka" %% "akka-http-testkit" % "10.1.1",
 )
